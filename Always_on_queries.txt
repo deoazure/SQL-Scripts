@@ -1,0 +1,242 @@
+-- AlwaysOn Availability Group Metadata
+
+select * from sys.dm_hadr_availability_replica_states
+
+-- Determine Last Failover Time and Reason
+
+SELECT
+ar.replica_server_name
+,ag.name
+,ars.last_connect_error_description
+,ars.last_connect_error_timestamp
+FROM sys.dm_hadr_availability_replica_states ars
+INNER JOIN sys.availability_replicas ar
+ON ar.group_id = ars.group_id
+AND ars.replica_id = ar.replica_id
+INNER JOIN sys.availability_groups ag
+ON ag.group_id = ar.group_id ;
+
+-- Check replication latency on secondary DBs before failover
+
+Therefore, consider taking time to determine the relative latency of the copies of the databases on different secondary replicas. To determine which copy of a given secondary database has the least latency, compare their end-of-log LSNs. A higher the end-of-log LSN indicates less latency. 
+
+To compare end-of-log LSNs, connect to each online secondary replica, in turn, and query sys.dm_hadr_database_replica_states for the end_of_log_lsn value of each local secondary database. Then, compare the end-of-log LSNs of the different copies of each database. Note that different databases might have their highest LSNs on different secondary replicas. In this case, the most appropriate failover target depends on the relative importance that you place on the data in the different databases. That is, for which of these databases would you most want to minimize possible data loss
+
+https://docs.microsoft.com/en-us/sql/database-engine/availability-groups/windows/perform-a-forced-manual-failover-of-an-availability-group-sql-server
+
+-- Automatic seeding
+
+-- https://docs.microsoft.com/en-us/sql/database-engine/availability-groups/windows/automatically-initialize-always-on-availability-group
+-- https://docs.microsoft.com/en-us/sql/database-engine/availability-groups/windows/automatic-seeding-secondary-replicas
+
+-- seeding progress in percent
+-- https://www.mssqltips.com/sqlservertip/4537/sql-server-2016-availability-group-automatic-seeding/
+
+SELECT
+ r.session_id, r.status, r.command, r.wait_type
+ , r.percent_complete, r.estimated_completion_time
+FROM sys.dm_exec_requests r JOIN sys.dm_exec_sessions s
+ ON r.session_id = s.session_id
+WHERE r.session_id <> @@SPID
+AND s.is_user_process = 0
+AND r.command like 'VDI%'
+
+-- seeding events
+
+SELECT start_time, 
+    completion_time, 
+    is_source, 
+    current_state, 
+    failure_state, 
+    failure_state_desc, 
+    error_code 
+FROM sys.dm_hadr_automatic_seeding
+
+-- autoseeding stats - leisti ant secondary
+
+SELECT local_database_name
+ ,role_desc
+ ,internal_state_desc
+ ,transfer_rate_bytes_per_second
+ ,transferred_size_bytes
+ ,database_size_bytes
+ ,start_time_utc
+ ,end_time_utc
+ ,estimate_time_complete_utc
+ ,total_disk_io_wait_time_ms
+ ,total_network_wait_time_ms
+ ,is_compression_enabled
+FROM sys.dm_hadr_physical_seeding_stats
+
+-- backup/restore throughput
+
+IF OBJECT_ID('tempdb..#Seeding') IS NOT NULL DROP TABLE #Seeding;
+
+SELECT  GETDATE() AS CollectionTime,
+        instance_name,
+        cntr_value
+INTO    #Seeding
+FROM    sys.dm_os_performance_counters
+WHERE   counter_name = 'Backup/Restore Throughput/sec';
+
+WAITFOR DELAY '00:00:05'
+
+SELECT  LTRIM(RTRIM(p2.instance_name)) AS [DatabaseName],
+        (p2.cntr_value - p1.cntr_value) / (DATEDIFF(SECOND,p1.CollectionTime,GETDATE())) AS ThroughputBytesSec
+FROM    sys.dm_os_performance_counters AS p2
+        INNER JOIN #Seeding AS p1
+            ON p2.instance_name = p1.instance_name
+WHERE   p2.counter_name LIKE 'Backup/Restore Throughput/sec%'
+ORDER BY
+        ThroughputBytesSec DESC;
+
+
+-- failover
+
+-- list of AOG databases
+-- https://blog.pythian.com/list-of-sql-server-databases-in-an-availability-group/
+
+
+SELECT
+AG.name AS [AvailabilityGroupName],
+ISNULL(agstates.primary_replica, '') AS [PrimaryReplicaServerName],
+ISNULL(arstates.role, 3) AS [LocalReplicaRole],
+dbcs.database_name AS [DatabaseName],
+ISNULL(dbrs.synchronization_state, 0) AS [SynchronizationState],
+ISNULL(dbrs.is_suspended, 0) AS [IsSuspended],
+ISNULL(dbcs.is_database_joined, 0) AS [IsJoined]
+FROM master.sys.availability_groups AS AG
+LEFT OUTER JOIN master.sys.dm_hadr_availability_group_states as agstates
+   ON AG.group_id = agstates.group_id
+INNER JOIN master.sys.availability_replicas AS AR
+   ON AG.group_id = AR.group_id
+INNER JOIN master.sys.dm_hadr_availability_replica_states AS arstates
+   ON AR.replica_id = arstates.replica_id AND arstates.is_local = 1
+INNER JOIN master.sys.dm_hadr_database_replica_cluster_states AS dbcs
+   ON arstates.replica_id = dbcs.replica_id
+LEFT OUTER JOIN master.sys.dm_hadr_database_replica_states AS dbrs
+   ON dbcs.replica_id = dbrs.replica_id AND dbcs.group_database_id = dbrs.group_database_id
+ORDER BY AG.name ASC, dbcs.database_name
+
+
+-------------------------------------------------------------------
+-- https://sqlundercover.com/2017/09/19/7-ways-to-query-always-on-availability-groups-using-sql/
+-------------------------------------------------------------------
+
+-- Show All availability groups visible to this server where this Server is the Primary replica
+
+SELECT Groups.[Name] AS AGname
+FROM sys.dm_hadr_availability_group_states States
+INNER JOIN master.sys.availability_groups Groups ON States.group_id = Groups.group_id
+WHERE primary_replica = @@Servername;
+
+-- Show All availability groups visible to this server where this Server is a Secondary replica
+
+SELECT Groups.[Name] AS AGname
+FROM sys.dm_hadr_availability_group_states States
+INNER JOIN master.sys.availability_groups Groups ON States.group_id = Groups.group_id
+WHERE primary_replica != @@Servername;
+
+-- Show All Databases in an availability group visible to this server where this Server is the primary replica
+
+SELECT
+Groups.[Name] AS AGname,
+AGDatabases.database_name AS Databasename
+FROM sys.dm_hadr_availability_group_states States
+INNER JOIN master.sys.availability_groups Groups ON States.group_id = Groups.group_id
+INNER JOIN sys.availability_databases_cluster AGDatabases ON Groups.group_id = AGDatabases.group_id
+WHERE primary_replica = @@Servername
+ORDER BY
+AGname ASC,
+Databasename ASC;
+
+-- Show All Databases in an availability group visible to this server where this Server is a Secondary replica
+
+SELECT
+Groups.[Name] AS AGname,
+AGDatabases.database_name AS Databasename
+FROM sys.dm_hadr_availability_group_states States
+INNER JOIN master.sys.availability_groups Groups ON States.group_id = Groups.group_id
+INNER JOIN sys.availability_databases_cluster AGDatabases ON Groups.group_id = AGDatabases.group_id
+WHERE primary_replica != @@Servername
+ORDER BY
+AGname ASC,
+Databasename ASC;
+
+-- Show All Databases Across all Availability groups within the Cluster (not specific to current server)
+
+SELECT  Groups.[name] AS AGName ,
+Databaselist.[database_name] AS DatabaseName
+FROM    sys.availability_databases_cluster Databaselist
+INNER JOIN sys.availability_groups_cluster Groups ON Databaselist.group_id = Groups.group_id
+ORDER BY
+AGName ,
+DatabaseName;
+
+
+--Show Availability groups visible to the Server and Replica information such as Which server is the Primary
+--Sync and Async modes , Readable Secondary and Failover Mode, these can all be filtered using a Where clause
+--if you are running some checks, no Where clause will show you all of the information.
+
+WITH AGStatus AS(
+SELECT
+name as AGname,
+replica_server_name,
+CASE WHEN  (primary_replica  = replica_server_name) THEN  1
+ELSE  '' END AS IsPrimaryServer,
+secondary_role_allow_connections_desc AS ReadableSecondary,
+[availability_mode]  AS [Synchronous],
+failover_mode_desc
+FROM master.sys.availability_groups Groups
+INNER JOIN master.sys.availability_replicas Replicas ON Groups.group_id = Replicas.group_id
+INNER JOIN master.sys.dm_hadr_availability_group_states States ON Groups.group_id = States.group_id
+)
+ 
+Select
+[AGname],
+[Replica_server_name],
+[IsPrimaryServer],
+[Synchronous],
+[ReadableSecondary],
+[Failover_mode_desc]
+FROM AGStatus
+--WHERE
+--IsPrimaryServer = 1
+--AND Synchronous = 1
+ORDER BY
+AGname ASC,
+IsPrimaryServer DESC;
+
+
++++++++++++++++
+
+select a.database_id, name, log_reuse_wait,log_reuse_wait_desc from sys.databases a
+where a.database_id=13;
+
+select * from sys.dm_hadr_database_replica_states
+where database_id=13
+;
+
+SELECT
+	ag.name AS [availability_group_name]
+	, d.name AS [database_name]
+	, ar.replica_server_name AS [replica_instance_name]
+	, drs.truncation_lsn
+	, drs.log_send_queue_size
+	, drs.redo_queue_size
+	,drs.replica_id
+FROM
+	sys.availability_groups ag
+	INNER JOIN sys.availability_replicas ar
+		ON ar.group_id = ag.group_id
+	INNER JOIN sys.dm_hadr_database_replica_states drs
+		ON drs.replica_id = ar.replica_id
+	INNER JOIN sys.databases d
+		ON d.database_id = drs.database_id
+WHERE drs.is_local=0
+and d.database_id=13
+ORDER BY
+	ag.name ASC, d.name ASC, drs.truncation_lsn ASC, ar.replica_server_name ASC
+	;
+
+++++++++++++++++

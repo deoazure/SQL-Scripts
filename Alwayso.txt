@@ -1,0 +1,42 @@
+﻿Monitor auto seeding in always on
+++++++++++++++++++++++++++++++++++++++++++++++++++
+
+SELECT start_time,
+    ag.name,
+    db.database_name,
+    current_state,
+    performed_seeding,
+    failure_state,
+    failure_state_desc
+FROM sys.dm_hadr_automatic_seeding autos 
+    JOIN sys.availability_databases_cluster db 
+        ON autos.ag_db_id = db.group_database_id
+    JOIN sys.availability_groups ag 
+        ON autos.ag_id = ag.group_id
+		
+		
+//msdn
+https://docs.microsoft.com/en-us/sql/database-engine/availability-groups/windows/automatically-initialize-always-on-availability-group?view=sql-server-2017
+
+//Brentoaz
+https://www.brentozar.com/archive/2016/06/availability-group-direct-seeding-extended-events-and-dmvs/
+
++++++++++++++++++++++++++++++++++++++++++++++++++
+
+SQL SERVER – AlwaysOn Automatic Seeding – Database Stuck in Restoring State
+
+Workarround:Pinal Dave
+
+https://blog.sqlauthority.com/2018/03/26/sql-server-alwayson-automatic-seeding-database-stuck-in-restoring-state/
+
+
++++++++++++++++++++++++++++++++++++++++++++++++
+
+You can monitor seeding status with extended events (could impact a little server performance). Below are some of the events to use:
+
+hadr_physical_seeding_backup_state_change, hadr_physical_seeding_restore_state_change, hadr_physical_seeding_forwarder_state_change, 
+hadr_physical_seeding_failure, hadr_physical_seeding_progress, hadr_automatic_seeding_start, 
+hadr_automatic_seeding_success and hadr_automatic_seeding_timeout
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++
