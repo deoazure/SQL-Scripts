@@ -1,0 +1,203 @@
+## find locks by creating trace:
+https://docs.microsoft.com/en-us/sql/relational-databases/extended-events/determine-which-queries-are-holding-locks?view=sql-server-2017
+
+
+
+
+http://sqldbanotes.blogspot.dk/2013/05/sql-server-find-spid-which-is-root-of.html
+
+1) To start , one can simply run the below T-SQL but it will only be helpful If there are few connections or only one SPID is blocking another otherwise it will be really difficult to check all SPID involved manually :
+select blocked,* from sys.sysprocesses where blocked<>0
+
+2) In case there is a blocking chain means one SPID is blocking second one and second one is blocking third one so it's really difficult to track the root of blocking chain if there are number of SPID involved in it so here is the T-SQL which will help to find the root of this blocking chain. Output if this T-SQL will return SPID that is part of blocking chain but it's request_status is 'GRANT'. If the lock is already acquired then it will be in GRANT status otherwise it will be in WAIT status.
+
+SELECT
+distinct(l.request_SESSION_Id)
+FROM sys.dm_tran_locks as l
+JOIN sys.dm_tran_locks as l1
+ON l.resource_associated_entity_id = l1.resource_associated_entity_id
+WHERE l.request_status <> l1.request_status
+AND
+( l.resource_description = l1.resource_description 
+OR 
+(l.resource_description IS NULL 
+AND l1.resource_description IS NULL)) 
+and (l.request_status)='GRANT' and l.request_SESSION_Id not in (SELECT
+distinct(l.request_SESSION_Id)
+FROM sys.dm_tran_locks as l
+JOIN sys.dm_tran_locks as l1
+ON l.resource_associated_entity_id = l1.resource_associated_entity_id
+WHERE l.request_status <> l1.request_status
+AND
+( l.resource_description = l1.resource_description 
+OR 
+(l.resource_description IS NULL 
+AND l1.resource_description IS NULL)) 
+and (l.request_status)='WAIT')
+order by (l.request_SESSION_Id)
+
+3) T-SQL to get all the details like login , database name and underlying query which is associated with particular SPID : 
+
+SELECT 
+sp.spid, sp.[status], sp.loginame,
+sp.hostname, sp.[program_name],
+sp.blocked, sp.open_tran,
+dbname=db_name(sp.[dbid]), sp.cmd,
+sp.waittype, sp.waittime, sp.last_batch, st.[text]
+FROM master.dbo.sysprocesses sp
+CROSS APPLY sys.dm_exec_sql_text (sp.[sql_handle]) st
+WHERE spid = ? -- Please specify the login which is output of first query
+
+
+
+
+
+http://blog.sqlauthority.com/2015/07/07/sql-server-identifying-blocking-chain-using-sql-scripts/
+
+SET NOCOUNT ON
+GO
+SELECT SPID, BLOCKED, REPLACE (REPLACE (T.TEXT, CHAR(10), ' '), CHAR(13), ' ' ) AS BATCH
+INTO #T
+FROM sys.sysprocesses R CROSS APPLY sys.dm_exec_sql_text(R.SQL_HANDLE) T
+GO
+WITH BLOCKERS (SPID, BLOCKED, LEVEL, BATCH)
+AS
+(
+SELECT SPID,
+BLOCKED,
+CAST (REPLICATE ('0', 4-LEN (CAST (SPID AS VARCHAR))) + CAST (SPID AS VARCHAR) AS VARCHAR (1000)) AS LEVEL,
+BATCH FROM #T R
+WHERE (BLOCKED = 0 OR BLOCKED = SPID)
+AND EXISTS (SELECT * FROM #T R2 WHERE R2.BLOCKED = R.SPID AND R2.BLOCKED <> R2.SPID)
+UNION ALL
+SELECT R.SPID,
+R.BLOCKED,
+CAST (BLOCKERS.LEVEL + RIGHT (CAST ((1000 + R.SPID) AS VARCHAR(100)), 4) AS VARCHAR (1000)) AS LEVEL,
+R.BATCH FROM #T AS R
+INNER JOIN BLOCKERS ON R.BLOCKED = BLOCKERS.SPID WHERE R.BLOCKED > 0AND R.BLOCKED <> R.SPID
+)
+SELECT N'    ' + REPLICATE (N'|         ', LEN (LEVEL)/4 - 1) +
+CASE WHEN (LEN(LEVEL)/4 - 1) = 0
+THEN 'HEAD -  '
+ELSE '|------  ' END
++ CAST (SPID AS NVARCHAR (10)) + N' ' + BATCH AS BLOCKING_TREE
+FROM BLOCKERS ORDER BY LEVEL ASC
+GO
+DROP TABLE #T
+GO
+
+
+--https://thesqlguy.wordpress.com/2010/11/15/sql-2005-blocking-chains-a-friendly-display-using-cte-and-recursion/
+--Best to output results to text rather than grid -- SQL 2005 and above only
+
+
+
+SET NOCOUNT ON
+ 
+IF OBJECT_ID('tempdb..#Processes') IS NOT NULL
+    DROP TABLE #Processes
+ 
+DECLARE @results TABLE (
+    id INT IDENTITY(1,1),
+    DB_Name VARCHAR(500),
+    BlockingSPID INT, SPID INT, 
+    BlockingStatement VARCHAR(MAX), 
+    RowNo INT, LevelRow INT
+)
+ 
+SELECT
+    s.spid, 
+    BlockingSPID = s.blocked, 
+    DatabaseName = DB_NAME(s.dbid),
+    s.program_name, 
+    s.loginame, 
+    ObjectName = OBJECT_NAME(objectid, s.dbid), 
+    Definition = CAST(text AS VARCHAR(MAX))
+INTO #Processes
+FROM sys.sysprocesses s
+    CROSS APPLY sys.dm_exec_sql_text (sql_handle)
+WHERE s.spid > 50;
+ 
+WITH Blocking(SPID, BlockingSPID, BlockingStatement, RowNo, LevelRow, DB_Name)
+AS
+(
+    SELECT
+        s.SPID, 
+        s.BlockingSPID, 
+        s.Definition, 
+        ROW_NUMBER() OVER(ORDER BY s.SPID) AS RowNo,
+        0 AS LevelRow,
+        s.DatabaseName AS DB_Name
+    FROM #Processes s
+        INNER JOIN #Processes s1 ON s.SPID = s1.BlockingSPID
+    WHERE s.BlockingSPID = 0
+        UNION ALL
+    SELECT
+        r.SPID,
+        r.BlockingSPID, 
+        r.Definition,
+        d.RowNo,
+        d.LevelRow + 1,
+        r.DatabaseName AS DB_Name
+    FROM #Processes r
+        INNER JOIN Blocking d ON r.BlockingSPID = d.SPID
+    WHERE r.BlockingSPID > 0
+)
+INSERT INTO @results (
+    [DB_Name],
+    [BlockingSPID],
+    [SPID],
+    [BlockingStatement],
+    [RowNo],
+    [LevelRow]
+) 
+SELECT
+    MIN(DB_NAME) AS DB_Name,
+    BlockingSPID, 
+    SPID, 
+    BlockingStatement, 
+    MIN(RowNo), 
+    LevelRow 
+FROM Blocking
+GROUP BY BlockingSPID, SPID, BlockingStatement, LevelRow
+ORDER BY MIN(RowNo), LevelRow
+  
+SELECT
+    CASE
+        WHEN [BlockingSPID] = 0 
+        THEN '
+****Head of Blocking Chain SPID ' + CAST([SPID] AS VARCHAR(50)) + '...
+'
+            + 'SPID ' + CAST([SPID] AS VARCHAR(50)) + ' (DB: ' + [DB_Name] + ') ' + ' Statement: ' + REPLACE(REPLACE([BlockingStatement], CHAR(10),' '), CHAR(13), '')
+                + '
+'
+                + '...is blocking the following SPID(s):'
+        WHEN [LevelRow] > 1
+        THEN '
+'
+            + SPACE(LevelRow * 5) + 'SPID '
+            + CAST(BlockingSPID AS VARCHAR(50))
+            + ' is, in turn, blocking the following SPID:
+'
+            + SPACE((LevelRow + 1) * 5) + 'SPID ' + CAST([SPID] AS VARCHAR(50)) + ' (DB: ' + [DB_Name] + ') ' + ' Statement: ' + REPLACE(REPLACE([BlockingStatement], CHAR(10),' '), CHAR(13), '')
+ 
+        ELSE '
+'
+            + SPACE(LevelRow * 5) + CAST([SPID] AS VARCHAR(50)) + ' (DB: ' + [DB_Name] + ') ' + ' Statement: ' + REPLACE(REPLACE([BlockingStatement], CHAR(10),' '), CHAR(13), '')
+                + '
+'
+    END
+FROM @results
+ 
+IF NOT EXISTS (SELECT TOP 1 * FROM @results)
+    PRINT 'No Blocking Chains Were Found'
+ 
+BEGIN TRY
+    DROP TABLE #Processes
+END TRY 
+BEGIN CATCH
+END CATCH
+
+
+
+
