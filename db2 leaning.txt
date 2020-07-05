@@ -1,0 +1,13 @@
+https://www.ibm.com/developerworks/offers/lp/db2cert/db2-cert610.html   ---given by Abhay
+
+https://www.ibm.com/support/knowledgecenter/en/SSEPGG_11.5.0/com.ibm.db2.luw.welcome.doc/doc/welcome.html   ---IBM Knowlegde Center
+
+https://www.ibm.com/support/knowledgecenter/SSEPGG_9.7.0/com.ibm.db2.luw.kc.doc/welcome.html   --IBM Knowledge Center
+
+https://www.youtube.com/user/DB2LUWAcademy/playlists  DB2-LUW Academy
+
+https://www.youtube.com/user/IBMDB2forzOS/playlists   World of DB2
+
+https://www.udemy.com/course/ibm-db2-9-sql-and-database-administration-workshop/   --38.5 hrs course 
+
+https://app.pluralsight.com/paths/skill/ibm-qradar-incident-detection-and-responses
