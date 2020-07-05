@@ -1,0 +1,85 @@
+------------------------------
+
+How it Works?
+There are few choices I have given to the users for this script
+The user can restrict the databases that are needed to be taken a backup 
+The user should give the backup location in which the backup files needs to be placed 
+The user can choose the backup file trailer incase if he wishes to add something there & if it is left blank current date in the format YYYYMMDD will be added to the end of the databasename. 
+
+______________________________________
+
+IF EXISTS ( SELECT 1 FROM SYSOBJECTS WHERE name = 'databases_To_be_backedUp' and xtype = 'U') 
+    DROP TABLE databases_To_be_backedUp 
+CREATE TABLE databases_To_be_backedUp 
+( 
+    ID                INT        Identity(1,1) 
+    ,database_name    varchar(200) 
+) 
+GO 
+ 
+IF EXISTS ( SELECT 1 FROM SYSOBJECTS where name = 'backup_all_databases' and xtype = 'P') 
+    DROP PROCEDURE backup_all_databases 
+CREATE procedure backup_all_databases 
+( 
+    @backupName_trailer    varchar(20) = '' --- If the parameter is passed the backup names will have the trailer with this 
+                                          -- else by default the proc will add the YYYYMMDD trailer. 
+    ,@backupLocation    varchar(100) 
+) 
+AS 
+BEGIN 
+    declare @databaseName    Varchar(200) 
+            ,@lookUpCount    int 
+            ,@sql            varchar(1000) 
+     
+    SELECT @lookUpCount = count(1)  
+    FROM databases_To_be_backedUp 
+     
+    IF (@lookUpCount > 0) -- Some databases are inserted into the databases_To_be_backedUp, that means only these databases are needed to be backed up. 
+    BEGIN 
+        DECLARE database_cursor CURSOR 
+        FOR SELECT database_name FROM databases_To_be_backedUp ORDER BY ID 
+    END     
+    ELSE 
+    BEGIN 
+                          -- The databases_To_be_backedUp is empty so all the databases are needed to backed up.. apart from the system databases 
+                          -- In this script we are considering the MASTER, MODEL,TEMPDB, MSDB as system databases.. 
+                          -- Incase if you want to change this change the not in parameter for the below select statement. 
+        DECLARE database_cursor CURSOR 
+        FOR select name from sys.databases where name not in('master','model','msdb', 'tempdb') 
+    END 
+    OPEN database_cursor  
+    FETCH database_cursor into @databaseName 
+    WHILE (@@FETCH_STATUS = 0) 
+    BEGIN 
+        Select @sql = 'BACKUP DATABASE ' + @databaseName + ' TO DISK = ' + '''' + @backupLocation + @databaseName  
+                                        + CASE @backupName_trailer  
+                                                WHEN '' THEN convert(varchar(10),getdate(),112) 
+                                                ELSE @backupName_trailer 
+                                          END 
+                                        + '.bak'            -- extension  for the backup file 
+                                        + '''' 
+                                        + ' WITH INIT,SKIP' 
+        print @sql 
+        exec(@sql) 
+        FETCH database_cursor into @databaseName 
+    END 
+    CLOSE database_cursor  
+    DEALLOCATE database_cursor  
+END 
+GO 
+ 
+-- examples 
+-- 1 backup all your databases to d:\ 
+exec backup_all_databases @backupLocation = 'D:\' 
+ 
+-- 2 backup with backup as a trailer in the file name 
+exec backup_all_databases @backupName_trailer = 'backup',@backupLocation = 'D:\' 
+ 
+-- 3 if you want to take backup of only choosen databases rather than every thing 
+create database a -- creates a temp database a   
+create database b -- creates a temp database b 
+ 
+insert into databases_To_be_backedUp(database_name) values ('a'); 
+insert into databases_To_be_backedUp(database_name) values ('b'); 
+ 
+exec backup_all_databases @backupLocation = 'D:\' 
