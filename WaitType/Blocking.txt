@@ -1,0 +1,108 @@
+USE [master]
+GO
+SELECT  session_id,
+blocking_session_id,
+wait_time,
+wait_type,
+last_wait_type,
+wait_resource,
+transaction_isolati,
+on_level,
+lock_timeout
+FROM sys.dm_exec_requests
+WHERE blocking_session_id <> 0
+GO
+
++++++++++++++++++++++++++++++
+
+
+sp_who2 System Stored Procedure
+sys.dm_exec_requests DMV
+Sys.dm_os_waiting_tasks
+SQL Server Management Studio Activity Monitor
+SQL Server Management Studio Reports
+SQL Server Profiler 
+
++++++++++++++++++++++++++++++++++
+
+
+SELECT
+db.name DBName,
+tl.request_session_id,
+wt.blocking_session_id,
+OBJECT_NAME(p.OBJECT_ID) BlockedObjectName,
+tl.resource_type,
+h1.TEXT AS RequestingText,
+h2.TEXT AS BlockingTest,
+tl.request_mode
+FROM sys.dm_tran_locks AS tl
+INNER JOIN sys.databases db ON db.database_id = tl.resource_database_id
+INNER JOIN sys.dm_os_waiting_tasks AS wt ON tl.lock_owner_address = wt.resource_address
+INNER JOIN sys.partitions AS p ON p.hobt_id = tl.resource_associated_entity_id
+INNER JOIN sys.dm_exec_connections ec1 ON ec1.session_id = tl.request_session_id
+INNER JOIN sys.dm_exec_connections ec2 ON ec2.session_id = wt.blocking_session_id
+CROSS APPLY sys.dm_exec_sql_text(ec1.most_recent_sql_handle) AS h1
+CROSS APPLY sys.dm_exec_sql_text(ec2.most_recent_sql_handle) AS h2
+GO
+
+++++++++++++++++++++++++++++++++++++++++++
+
+---Top Running Query
+SELECT top 100  * FROM    sys.dm_exec_requests  
+        CROSS APPLY sys.dm_exec_sql_text(sql_handle)  
+---ExecutionPlan
+SELECT QP.query_plan as [Query Plan], 
+       ST.text AS [Query Text]
+FROM sys.dm_exec_requests AS R
+   CROSS APPLY sys.dm_exec_query_plan(R.plan_handle) AS QP
+   CROSS APPLY sys.dm_exec_sql_text(R.plan_handle) ST;
+
+++++++++++++++++++++++++++++++++++++++++++++++++++
+SELECT TOP 10
+t.TEXT QueryName,
+s.execution_count AS ExecutionCount,
+s.max_elapsed_time AS MaxElapsedTime,
+ISNULL(s.total_elapsed_time / 1000 / NULLIF(s.execution_count, 0), 0) AS AvgElapsedTime,
+s.creation_time AS LogCreatedOn,
+ISNULL(s.execution_count / 1000 / NULLIF(DATEDIFF(s, s.creation_time, GETDATE()), 0), 0) AS FrequencyPerSec
+,query_plan
+FROM sys.dm_exec_query_stats s
+CROSS APPLY sys.dm_exec_query_plan( s.plan_handle ) u
+CROSS APPLY sys.dm_exec_sql_text( s.plan_handle ) t
+ORDER BY MaxElapsedTime DESC
++++++++++++++++++++++++
+Currently runnung query
+
+Currently running high CPU query
+
+SELECT s.session_id,
+r.status,
+r.blocking_session_id 'Blk by',
+r.wait_type,
+wait_resource,
+r.wait_time / (1000 * 60) 'Wait M',
+r.cpu_time,
+r.logical_reads,
+r.reads,
+r.writes,
+r.total_elapsed_time / (1000 * 60) 'Elaps M',
+Substring(st.TEXT,(r.statement_start_offset / 2) + 1,
+((CASE r.statement_end_offset
+WHEN -1
+THEN Datalength(st.TEXT)
+ELSE r.statement_end_offset
+END - r.statement_start_offset) / 2) + 1) AS statement_text,
+Coalesce(Quotename(Db_name(st.dbid)) + N'.' + Quotename(Object_schema_name(st.objectid, st.dbid)) + N'.' +
+Quotename(Object_name(st.objectid, st.dbid)), '') AS command_text,
+r.command,
+s.login_name,
+s.host_name,
+s.program_name,
+s.last_request_end_time,
+s.login_time,
+r.open_transaction_count
+FROM sys.dm_exec_sessions AS s
+JOIN sys.dm_exec_requests AS r
+ON r.session_id = s.session_id
+CROSS APPLY sys.Dm_exec_sql_text(r.sql_handle) AS st
+WHERE r.session_id != @@SPID

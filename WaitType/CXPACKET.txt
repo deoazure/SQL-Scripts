@@ -1,0 +1,34 @@
+High CXPacket Wait counts in an OLTP environment can be used as an indication towards performance issues relating 
+to Query Parallelism in your environment due to having multiple cores available. As part of you investigation into 
+determining if you need to adjust your MAXDOP (Max Degree of Parallelism) 
+this script allows you to capture the various wait counts over time with changing the value of you MAXDOP setting.
+-=--https://gallery.technet.microsoft.com/scriptcenter/CXPacket-Wait-Type-Count-500ca0dd
+++++++++++++++++++++
+Create Table #CXPacketCount( 
+    CaptureDate Datetime, 
+    WaitType Varchar(100), 
+    WaitTypeCount Int 
+) 
+ 
+Declare @loopCount Int 
+Declare @MaxLoop Int 
+ 
+Set @loopCount = 1 
+Set @MaxLoop = 5 
+ 
+While @loopCount <= @MaxLoop 
+Begin 
+    Insert Into #CXPacketCount(CaptureDate,WaitType,WaitTypeCount) 
+    SELECT GETDATE(),wait_type,waiting_tasks_count  
+    FROM sys.dm_os_wait_stats  
+    WHERE wait_type = 'CXPACKET'  
+     
+    WAITFOR DELAY '00:00:30'; 
+ 
+    Set @loopCount = @loopCount + 1 
+End 
+ 
+Select *  
+from #CXPacketCount 
+ 
+Drop Table #CXPacketCount 
