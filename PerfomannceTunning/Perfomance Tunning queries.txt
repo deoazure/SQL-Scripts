@@ -1,0 +1,294 @@
+Query for Perfomanc tunning--
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+1)We can execute the following query to find the TOP 50 cached plans that have consumed the most cumulative CPU.
+All times are in microseconds.
+---------------------------------------------------------------------
+SELECT TOP 50 qs.creation_time, 
+              qs.execution_count, 
+              qs.total_worker_time AS total_cpu_time, 
+              qs.max_worker_time   AS max_cpu_time, 
+              qs.total_elapsed_time, 
+              qs.max_elapsed_time, 
+              qs.total_logical_reads, 
+              qs.max_logical_reads, 
+              qs.total_physical_reads, 
+              qs.max_physical_reads, 
+              t.[text], 
+              qp.query_plan, 
+              t.dbid, 
+              t.objectid, 
+              t.encrypted, 
+              qs.plan_handle, 
+              qs.plan_generation_num 
+FROM   sys.dm_exec_query_stats qs 
+       CROSS apply sys.Dm_exec_sql_text(plan_handle) AS t 
+       CROSS apply sys.Dm_exec_query_plan(plan_handle) AS qp 
+ORDER  BY qs.total_worker_time DESC   
+----------------------------------------------------------------------------------------------------
+2)Identifying high CPU queries which are currently executing. 
+This would get data from requests DMV which shows currently execution queries.
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+SELECT sessions.session_id
+    ,requests.status
+    ,requests.blocking_session_id 
+    ,requests.wait_type
+    ,wait_resource
+    ,requests.wait_time / (1000.0) 'wait_time(sec)'
+    ,requests.cpu_time
+    ,requests.logical_reads
+    ,requests.reads
+    ,requests.writes
+    ,requests.total_elapsed_time / (1000.0) 'total_elapsed_time(Sec)'
+    ,Substring(sqltext.TEXT, (requests.statement_start_offset / 2) + 1, (
+            (
+                CASE requests.statement_end_offset
+                    WHEN - 1
+                        THEN Datalength(sqltext.TEXT)
+                    ELSE requests.statement_end_offset
+                    END - requests.statement_start_offset
+                ) / 2
+            ) + 1) AS statement_text
+    ,Coalesce(Quotename(Db_name(sqltext.dbid)) + N'.' + Quotename(Object_schema_name(sqltext.objectid, sqltext.dbid)) + N'.' + 
+     Quotename(Object_name(sqltext.objectid, sqltext.dbid)), '') AS command_text
+    ,requests.command
+    ,sessions.login_name
+    ,sessions.host_name
+    ,sessions.program_name
+    ,sessions.host_process_id
+    ,sessions.last_request_end_time
+    ,sessions.login_time
+    ,requests.open_transaction_count
+FROM sys.dm_exec_sessions AS sessions
+INNER JOIN sys.dm_exec_requests AS requests ON requests.session_id = sessions.session_id
+CROSS APPLY sys.dm_exec_sql_text(requests.sql_handle) AS sqltext
+WHERE requests.session_id != @@SPID
+ORDER BY requests.cpu_time DESC
+
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Last Statatics update date
+-----------------------------------------------------------------------------
+
+SELECT o.name 'Table Name', i.name 'Index Name', i.type 'Index Type'
+,STATS_DATE(i.[object_id], i.[index_id]) 'Last Statistics Update'
+FROM sys.indexes i, sys.objects o
+WHERE i.[object_id]=o.[object_id]
+AND o.type='U' AND i.name IS NOT NULL
+AND STATS_DATE(i.object_id, i.index_id) < DATEADD(DAY, -1, GETDATE())
+ORDER BY 'Last Statistics Update' DESC   
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Fragemenation check on all indexes in a database
+
+-----------------------------------------------------------------------------------
+
+SELECT dbschemas.[name] as 'Schema', 
+dbtables.[name] as 'Table', 
+dbindexes.[name] as 'Index',
+indexstats.alloc_unit_type_desc,
+indexstats.avg_fragmentation_in_percent,
+indexstats.page_count
+FROM sys.dm_db_index_physical_stats (DB_ID(), NULL, NULL, NULL, NULL) AS indexstats
+INNER JOIN sys.tables dbtables on dbtables.[object_id] = indexstats.[object_id]
+INNER JOIN sys.schemas dbschemas on dbtables.[schema_id] = dbschemas.[schema_id]
+INNER JOIN sys.indexes AS dbindexes ON dbindexes.[object_id] = indexstats.[object_id]
+AND indexstats.index_id = dbindexes.index_id
+WHERE indexstats.database_id = DB_ID()
+ORDER BY indexstats.avg_fragmentation_in_percent desc
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Fragemenation Check
+------------------------------------------------------------------------------------------------
+SELECT dbschemas.[name] as 'Schema', 
+dbtables.[name] as 'Table', 
+dbindexes.[name] as 'Index',
+indexstats.alloc_unit_type_desc,
+indexstats.avg_fragmentation_in_percent,
+indexstats.page_count
+FROM sys.dm_db_index_physical_stats (DB_ID(), NULL, NULL, NULL, NULL) AS indexstats
+INNER JOIN sys.tables dbtables on dbtables.[object_id] = indexstats.[object_id]
+INNER JOIN sys.schemas dbschemas on dbtables.[schema_id] = dbschemas.[schema_id]
+INNER JOIN sys.indexes AS dbindexes ON dbindexes.[object_id] = indexstats.[object_id]
+AND indexstats.index_id = dbindexes.index_id
+WHERE indexstats.database_id = DB_ID()
+ORDER BY indexstats.avg_fragmentation_in_percent desc
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+---Top Running Query
+SELECT top 100  * FROM    sys.dm_exec_requests  
+        CROSS APPLY sys.dm_exec_sql_text(sql_handle)  
+---ExecutionPlan
+SELECT QP.query_plan as [Query Plan], 
+       ST.text AS [Query Text]
+FROM sys.dm_exec_requests AS R
+   CROSS APPLY sys.dm_exec_query_plan(R.plan_handle) AS QP
+   CROSS APPLY sys.dm_exec_sql_text(R.plan_handle) ST;
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Isolate top waits for server instance since last restart or statistics clear
+
+_________________________________________________________________________________________________
+WITH Waits AS
+(SELECT wait_type, wait_time_ms / 1000. AS wait_time_s,
+100. * wait_time_ms / SUM(wait_time_ms) OVER() AS pct,
+ROW_NUMBER() OVER(ORDER BY wait_time_ms DESC) AS rn
+FROM sys.dm_os_wait_stats
+WHERE wait_type NOT IN ('CLR_SEMAPHORE','LAZYWRITER_SLEEP','RESOURCE_QUEUE','SLEEP_TASK'
+,'SLEEP_SYSTEMTASK','SQLTRACE_BUFFER_FLUSH','WAITFOR', 'LOGMGR_QUEUE','CHECKPOINT_QUEUE'
+,'REQUEST_FOR_DEADLOCK_SEARCH','XE_TIMER_EVENT','BROKER_TO_FLUSH','BROKER_TASK_STOP','CLR_MANUAL_EVENT'
+,'CLR_AUTO_EVENT','DISPATCHER_QUEUE_SEMAPHORE', 'FT_IFTS_SCHEDULER_IDLE_WAIT'
+,'XE_DISPATCHER_WAIT', 'XE_DISPATCHER_JOIN', 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP'))
+SELECT W1.wait_type,
+CAST(W1.wait_time_s AS DECIMAL(12, 2)) AS wait_time_s,
+CAST(W1.pct AS DECIMAL(12, 2)) AS pct,
+CAST(SUM(W2.pct) AS DECIMAL(12, 2)) AS running_pct
+FROM Waits AS W1
+INNER JOIN Waits AS W2
+ON W2.rn <= W1.rn
+GROUP BY W1.rn, W1.wait_type, W1.wait_time_s, W1.pct
+HAVING SUM(W2.pct) - W1.pct < 99 OPTION (RECOMPILE); -- percentage threshold
+GO
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+-- Signal Waits for instance
+
+_________________________________________________________________________________________________________
+SELECT CAST(100.0 * SUM(signal_wait_time_ms) / SUM (wait_time_ms) AS NUMERIC(20,2))
+AS [%signal (cpu) waits],
+CAST(100.0 * SUM(wait_time_ms - signal_wait_time_ms) / SUM (wait_time_ms) AS NUMERIC(20,2))
+AS [%resource waits] FROM sys.dm_os_wait_stats OPTION (RECOMPILE);
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+This DMV is written taking the following into consideration: we want to analyze the queries that are currently running or 
+which have recently ran and their plan is still in the cache.
+------------------------------------------------------------------------------------------------------------
+SELECT dm_ws.wait_duration_ms,
+dm_ws.wait_type,
+dm_es.status,
+dm_t.TEXT,
+dm_qp.query_plan,
+dm_ws.session_ID,
+dm_es.cpu_time,
+dm_es.memory_usage,
+dm_es.logical_reads,
+dm_es.total_elapsed_time,
+dm_es.program_name,
+DB_NAME(dm_r.database_id) DatabaseName,
+-- Optional columns
+dm_ws.blocking_session_id,
+dm_r.wait_resource,
+dm_es.login_name,
+dm_r.command,
+dm_r.last_wait_type
+FROM sys.dm_os_waiting_tasks dm_ws
+INNER JOIN sys.dm_exec_requests dm_r ON dm_ws.session_id = dm_r.session_id
+INNER JOIN sys.dm_exec_sessions dm_es ON dm_es.session_id = dm_r.session_id
+CROSS APPLY sys.dm_exec_sql_text (dm_r.sql_handle) dm_t
+CROSS APPLY sys.dm_exec_query_plan (dm_r.plan_handle) dm_qp
+WHERE dm_es.is_user_process = 1
+GO
+
+
+-------------------------------------------------------------------------------------
+High Cpu Utilizing query
++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+SELECT SUBSTRING(qt.TEXT, (qs.statement_start_offset/2)+1,
+((CASE qs.statement_end_offset
+WHEN -1 THEN DATALENGTH(qt.TEXT)
+ELSE qs.statement_end_offset
+END - qs.statement_start_offset)/2)+1),
+qs.execution_count,
+qs.total_logical_reads, qs.last_logical_reads,
+qs.total_logical_writes, qs.last_logical_writes,
+qs.total_worker_time,
+qs.last_worker_time,
+qs.total_elapsed_time/1000000 total_elapsed_time_in_S,
+qs.last_elapsed_time/1000000 last_elapsed_time_in_S,
+qs.last_execution_time,
+qp.query_plan
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) qt
+CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp
+ORDER BY qs.total_worker_time DESC -- CPU time
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+SELECT * into #auditlog FROM sys.fn_get_audit_file 
+
+('E:\MSSQL13.INST004\MSSQL\Log\AuditToFile_BE4F7621-3E75-4F39-A8A0-726830DA0957_0_131948323642000000.sqlaudit',default,default);  
+GO
+
+select * from #auditlog where class_type = 'DB' 
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+SELECT TOP 10
+t.TEXT QueryName,
+s.execution_count AS ExecutionCount,
+s.max_elapsed_time AS MaxElapsedTime,
+ISNULL(s.total_elapsed_time / 1000 / NULLIF(s.execution_count, 0), 0) AS AvgElapsedTime,
+s.creation_time AS LogCreatedOn,
+ISNULL(s.execution_count / 1000 / NULLIF(DATEDIFF(s, s.creation_time, GETDATE()), 0), 0) AS FrequencyPerSec
+,query_plan
+FROM sys.dm_exec_query_stats s
+CROSS APPLY sys.dm_exec_query_plan( s.plan_handle ) u
+CROSS APPLY sys.dm_exec_sql_text( s.plan_handle ) t
+ORDER BY MaxElapsedTime DESC
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+select * from sys.dm_db_missing_index_details
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Mirroring
+
+
+ALTER DATABASE [GeminiErrorLog] SET PARTNER RESUME; 
+
+select * from sys.database_mirroring
+
+++++++++++++++++++++++++++++++++++++++++
+Currently running high CPU query
+
+SELECT s.session_id,
+r.status,
+r.blocking_session_id 'Blk by',
+r.wait_type,
+wait_resource,
+r.wait_time / (1000 * 60) 'Wait M',
+r.cpu_time,
+r.logical_reads,
+r.reads,
+r.writes,
+r.total_elapsed_time / (1000 * 60) 'Elaps M',
+Substring(st.TEXT,(r.statement_start_offset / 2) + 1,
+((CASE r.statement_end_offset
+WHEN -1
+THEN Datalength(st.TEXT)
+ELSE r.statement_end_offset
+END - r.statement_start_offset) / 2) + 1) AS statement_text,
+Coalesce(Quotename(Db_name(st.dbid)) + N'.' + Quotename(Object_schema_name(st.objectid, st.dbid)) + N'.' +
+Quotename(Object_name(st.objectid, st.dbid)), '') AS command_text,
+r.command,
+s.login_name,
+s.host_name,
+s.program_name,
+s.last_request_end_time,
+s.login_time,
+r.open_transaction_count
+FROM sys.dm_exec_sessions AS s
+JOIN sys.dm_exec_requests AS r
+ON r.session_id = s.session_id
+CROSS APPLY sys.Dm_exec_sql_text(r.sql_handle) AS st
+WHERE r.session_id != @@SPID
+ORDER BY r.cpu_time desc
+ 
+

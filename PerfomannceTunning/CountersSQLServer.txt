@@ -1,0 +1,13 @@
+Processor(_Total)\% Processor Time ----80% or above
+Memory\Available MBytes
+Paging File(_Total)\% Usage
+PhysicalDisk(_Total)\Avg. Disk sec/Read  --Should not more than 20ms
+PhysicalDisk(_Total)\Avg. Disk sec/Write --Should not more than 20ms
+System\Processor Queue Length  ---
+Network interface\Bytes total/sec  ---should be lower than than 60% if the maximum bandwidth\
+SQLServer:Buffer Manager\Buffer cache hit ratio  --- useless
+SQLServer:Buffer Manager\Page life expectancy
+SQLServer:General Statistics\Processes blocked
+SQLServer:SQL Statistics\Batch Requests/sec
+SQLServer:SQL Statistics\SQL Compilations/sec
+SQLServer:SQL Statistics\SQL Re-Compilations/sec
