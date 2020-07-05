@@ -1,0 +1,18 @@
+CREATE EVENT SESSION [LongRunningQueries] ON SERVER 
+ADD EVENT sqlserver.rpc_completed(
+    ACTION(package0.collect_system_time,sqlserver.client_app_name,sqlserver.client_hostname,sqlserver.database_name,sqlserver.plan_handle,sqlserver.query_hash,sqlserver.session_id,sqlserver.sql_text,sqlserver.username)
+    WHERE ([package0].[greater_than_uint64]([duration],(1000000)))),
+ADD EVENT sqlserver.sp_statement_completed(
+    ACTION(package0.collect_system_time,sqlserver.client_app_name,sqlserver.client_hostname,sqlserver.database_name,sqlserver.plan_handle,sqlserver.query_hash,sqlserver.session_id,sqlserver.sql_text,sqlserver.username)
+    WHERE ([package0].[greater_than_int64]([duration],(1000000)))),
+ADD EVENT sqlserver.sql_batch_completed(
+    ACTION(package0.collect_system_time,sqlserver.client_app_name,sqlserver.client_hostname,sqlserver.database_name,sqlserver.plan_handle,sqlserver.query_hash,sqlserver.session_id,sqlserver.sql_text,sqlserver.username)
+    WHERE ([package0].[greater_than_uint64]([duration],(1000000)))),
+ADD EVENT sqlserver.sql_statement_completed(
+    ACTION(package0.collect_system_time,sqlserver.client_app_name,sqlserver.client_hostname,sqlserver.database_name,sqlserver.plan_handle,sqlserver.query_hash,sqlserver.session_id,sqlserver.sql_text,sqlserver.username)
+    WHERE ([package0].[greater_than_int64]([duration],(1000000))))
+ADD TARGET package0.event_file(SET filename=N'D:\Microsoft SQL Server\MSSQL13.MSSQLSERVER\MSSQL\Log\extended_events_sql.xel',max_rollover_files=(3))
+WITH (MAX_MEMORY=32768 KB,EVENT_RETENTION_MODE=ALLOW_SINGLE_EVENT_LOSS,MAX_DISPATCH_LATENCY=5 SECONDS,MAX_EVENT_SIZE=0 KB,MEMORY_PARTITION_MODE=NONE,TRACK_CAUSALITY=OFF,STARTUP_STATE=ON)
+GO
+
+

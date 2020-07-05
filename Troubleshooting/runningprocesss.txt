@@ -1,0 +1,7 @@
+select * from sys.sysprocesses where blocked !=0
+dbcc inputbuffer(124)
+
+
+select db_name(dbid),* from sys.sysprocesses where blocked <>0
+
+select db_name(dbid),* from sys.sysprocesses where status = 'suspended'
