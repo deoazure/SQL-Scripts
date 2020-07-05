@@ -1,0 +1,18 @@
+-- all running requests
+
+-- SELECT all active requests across all databases. 
+-- NOTE: Percentage complete is only reported for certain command types (e.g. backups, restores, DBCCs etc)
+SELECT 
+    sys.dm_exec_sql_text.text AS  CommandText,
+    sys.dm_exec_requests.Status AS Status,
+    sys.dm_exec_requests.Command AS CommandType, 
+    db_name(sys.dm_exec_requests.database_id) AS DatabaseName,
+    sys.dm_exec_requests.cpu_time AS CPUTime, 
+    sys.dm_exec_requests.total_elapsed_time AS ElapsedTime, 
+    sys.dm_exec_requests.percent_complete AS PercentageComplete
+     
+FROM   
+    sys.dm_exec_requests 
+ 
+CROSS APPLY 
+    sys.dm_exec_sql_text(sys.dm_exec_requests.sql_handle)
