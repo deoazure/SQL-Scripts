@@ -1,0 +1,12 @@
+https://github.com/microsoft/tigertoolbox/blob/master/Fixing-VLFs/Fix_VLFs.sql
+
+
+-- We are growing in MB instead of GB because of known issue prior to SQL 2012.
+
+-- More detail here: http://www.sqlskills.com/BLOGS/PAUL/post/Bug-log-file-growth-broken-for-multiples-of-4GB.aspx
+
+-- and http://connect.microsoft.com/SQLServer/feedback/details/481594/log-growth-not-working-properly-with-specific-growth-sizes-vlfs-also-not-created-appropriately
+
+-- or https://connect.microsoft.com/SQLServer/feedback/details/357502/transaction-log-file-size-will-not-grow-exactly-4gb-when-filegrowth-4gb
+
+
