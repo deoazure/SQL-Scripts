@@ -1,0 +1,52 @@
+select @@Version
+go
+select physical_memory_in_use_kb/1024 as Phys_mem_mb,
+large_page_allocations_kb/1024 as Large_pages_mb,
+locked_page_allocations_kb/1024 LPIM_MB,
+virtual_address_space_committed_kb/1024 Total_memory_utilized_MB
+ from sys.dm_os_process_memory
+go
+select physical_memory_kb/1024 as Phy_mem_MB,
+committed_kb/1024 as committed_mb,
+stack_size_in_bytes/1024 SS_MB,
+max_workers_count,sqlserver_start_time,virtual_machine_type_desc from sys.dm_os_sys_info
+go
+select top 10 type,
+sum(pages_kb)/1024 as [Memory utilized in MB],
+sum(awe_allocated_kb)/1024 as [Memory allocated though Windows API]
+ from sys.dm_os_memory_clerks
+ group by type
+ order by [Memory utilized in MB] desc
+ Go
+-------
+
+ select (virtual_address_space_committed_kb/1024) as virtual_address_space_committed_MB,
+ (locked_page_allocations_kb/1024) locked_page_allocations_MB,
+ (pages_kb/1024) [memory allocated MB]
+  from sys.dm_os_memory_nodes
+  where memory_node_id <> 64
+  Go
+-------
+SELECT top 10 SUM (pages_in_bytes)/1024 as 'KB Used', type 
+FROM sys.dm_os_memory_objects
+GROUP BY type 
+ORDER BY 'KB Used' DESC;
+GO
+--------
+select top 10 name,
+type,
+sum(pages_kb)/1024 as [Mem MB],
+sum(entries_count) as [Total Entry count] from sys.dm_os_memory_cache_counters
+group by
+type, name
+order by [Mem MB] desc
+Go
+-----
+select * from sys.dm_os_loaded_modules where company <> 'Microsoft Corporation'
+go
+
+
+---http://answers.flyppdevportal.com/MVC/Post/Thread/5a5f2b0a-9bd9-49fc-92dc-3a797cd0a976?category=sqldatabaseengine
+
+
+

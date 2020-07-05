@@ -1,0 +1,186 @@
+Below is the configuration you are using:
+
+Microsoft SQL Server 2016 (SP2-CU12) (KB4536648) - 13.0.5698.0 (X64)
+OS Name     Microsoft Windows Server 2016 Standard
+System Model      VMware7,1
+Installed Physical Memory (RAM)     128 GB      
+Total Physical Memory   128 GB      
+Available Physical Memory     6,43 GB     
+Total Virtual Memory    136 GB      
+Available Virtual Memory      13,6 GB     
+Page File Space   8,00 GB     
+
+name                                minimum     maximum     config_value run_value
+----------------------------------- ----------- ----------- ------------ -----------
+max server memory (MB)              128         2147483647  118784       118784   
+
+Max server memory is configured to 116GB out of 128GB Physical memory. (90% Memory allocated to SQL Server)
+
+We looked into SQL Error log and found the below error messages:
+
+2020-06-02 04:13:10.02 Backup      Log was backed up. Database: DDBAdminDB_AG, creation date(time): 2019/05/14(17:48:46), first LSN: 37:15387:1, last LSN: 37:15400:1, number of dump devices: 2, device information: (FILE=1, TYPE=VIRTUAL_DEVICE: {'d432ea5f-c485-4061-b508-e86c31ac0bc6', 'd432ea5f-c485-4061-b508-e86c31ac0bc6_1'}). This is an informational message only. No user action is required.
+2020-06-02 04:15:25.24 spid55s     [INFO] Database ID: [7]. Deleting unrecoverable checkpoint table row (id: 16333).
+2020-06-02 04:15:25.24 spid55s     [INFO] Database ID: [7]. Deleting unrecoverable checkpoint table row (id: 16331).
+2020-06-02 04:15:25.24 spid55s     [INFO] Database ID: [7]. Deleting unrecoverable checkpoint table row (id: 16334).
+2020-06-02 04:15:25.24 spid55s     [INFO] Database ID: [7]. Deleting unrecoverable checkpoint table row (id: 16332).
+2020-06-02 04:15:31.70 Server      [WARNING] === At least 4 extensions for file {B9DFF24F-3965-41B2-838D-35D8008E7E7B} (e:\b\s3\sources\sql\ntdbms\hekaton\engine\hadr\mtlog.cpp : 5946)
+2020-06-02 06:01:16.19 spid112     Failed allocate pages: FAIL_PAGE_ALLOCATION 1
+2020-06-02 06:01:16.19 spid350     Error: 701, Severity: 17, State: 130.
+2020-06-02 06:01:16.19 spid350     There is insufficient system memory in resource pool 'default' to run this query.
+2020-06-02 06:01:16.19 spid157     Error: 701, Severity: 17, State: 135.
+
+Errors Lasted till:
+
+2020-06-02 07:47:24.91 spid68      Error: 701, Severity: 17, State: 123.
+2020-06-02 07:47:24.91 spid68      There is insufficient system memory in resource pool 'default' to run this query.
+
+DB Recovery completed After that:
+
+2020-06-02 07:47:32.27 spid386s    Recovery of database 'bl' (7) is 29% complete (approximately 15 seconds remain). Phase 2 of 3. This is an informational message only. No user action is required.
+2020-06-02 07:47:32.38 spid386s    Recovery of database 'bl' (7) is 99% complete (approximately 1 seconds remain). Phase 2 of 3. This is an informational message only. No user action is required.
+2020-06-02 07:47:32.43 spid386s    1479 transactions rolled forward in database 'bl' (7:0). This is an informational message only. No user action is required.
+2020-06-02 07:52:07.25 spid386s    Recovery completed for database bl (database ID 7) in 281 second(s) (analysis 5817 ms, redo 115 ms, undo 0 ms.) This is an informational message only. No user action is required.
+
+Cause: 
+You were running short of pages to allocate, it means that some component has used all the pages. In your case physical memory was low.
+
+We do not see any dumps generated during that time frame so it is not feasible to tell which query has caused this. From the dbcc memory status we can see who has consumed more number of pages. If this happens again we need to collect the perfmon counters and general Pssdiag to capture the issue. 
+
+
+Troubleshooting:
+
+After the OOM the server becomes unstable and generally needs a restart.
+When we look at the memory status output at the time of the OOM condition, we see that the VAS is almost completely freed. This looks strange but the physical memory was low.
+
+Process/System Counts                         Value
+---------------------------------------- ----------
+Available Physical Memory                6537990144       ? 6 GB 
+Available Virtual Memory                 140371769675776  ? 127 TB   (Process VAS out of 128 TB)
+Available Paging File                    13857447936
+Working Set                              2106155008
+Percent of Committed Memory in WS                99
+Page Faults                               157968476
+System physical memory high                       1  ? System Physical memory was High.
+System physical memory low                        0
+Process physical memory low                       0
+Process virtual memory low                        0
+
+Memory Manager                                   KB
+---------------------------------------- ----------
+VM Reserved                               355670488   ? 339 GB
+VM Committed                                2972328
+Locked Pages Allocated                    118662480   ? 113 GB
+Large Pages Allocated                        825344
+Emergency Memory                               1024
+Emergency Memory In Use                          16
+Target Committed                          121634816
+Current Committed                         121634808
+Pages Allocated                           116300456
+Pages Reserved                                 1712
+Pages Free                                   342576    ? 334 MB
+Pages In Use                               81565056
+Page Alloc Potential                       33988024
+NUMA Growth Phase                                 2
+Last OOM Factor                                   5
+Last OS Error                                     0
+
+The biggest consumers are XTP and Buffer Pool:
+
+MEMORYCLERK_XTP (node 0)                         KB
+---------------------------------------- ----------
+VM Reserved                                       0
+VM Committed                                      0
+Locked Pages Allocated                            0
+SM Reserved                                       0
+SM Committed                                      0
+Pages Allocated                            76273984   ? 72GB 
+
+MEMORYCLERK_SQLBUFFERPOOL (node 0)               KB
+---------------------------------------- ----------
+VM Reserved                               104121532
+VM Committed                                 262144
+Locked Pages Allocated                      1778760
+SM Reserved                                       0
+SM Committed                                      0
+Pages Allocated                            39730736        ? 37.8 GB
+
+
+Buffer Pool                                   Value
+---------------------------------------- ----------
+Database                                    4966103  ? 37.8 GB  (Value*8/1024/1024)
+Simulated                                   1240419
+Target                                    261980160
+Dirty                                          5254
+In IO                                             0
+Latched                                           0
+Page Life Expectancy                           3650
+
+
+116GB Max Server Memory and out of that 72 GB is consumed by XTP and 38GB by Buffer Pool.
+72+38= 110 GB
+
+We looked into in-memory buffer pools and we noticed targeted and total limits are reached and we see memory for steal as well.
+
+
+Memory Pool (Pool_IMOLTP)                        KB
+---------------------------------------- ----------
+Allocations                                46759696
+Predicted                                  46759696
+Private Target                             86664800
+Private Limit                              86664800
+Total Target                               86664800
+Total Limit                                86664800   ? 82 GB
+
+MEMORYBROKER_FOR_CACHE (Pool_IMOLTP)             KB
+---------------------------------------- ----------
+Allocations                                       0
+Rate                                              0
+Target Allocations                         33957912
+Future Allocations                                0
+Overall                                    73123424   ? 69 GB
+
+MEMORYBROKER_FOR_STEAL (Pool_IMOLTP)             KB
+---------------------------------------- ----------
+Allocations                                       0
+Rate                                              0
+Target Allocations                         33957912
+Future Allocations                                0
+Overall                                    73123424    ? 69 GB
+
+MEMORYBROKER_FOR_XTP (default)                   KB
+---------------------------------------- ----------
+Allocations                                28813272
+Rate                                              0
+Target Allocations                         24305480
+Future Allocations                                0
+Overall                                    24374472   ? 23 GB
+Last Notification                                 2
+
+
+Currently XTP is using 54 GB in memory but if you insert or delete records or add new tables to in memory then old versions for some time will stay in memory and memory was not sufficient in your case when you were performing in memory DML, DDL  operations.
+
+
+MEMORYCLERK_XTP (node 0)                 KB
+---------------------------------------- -----------
+VM Reserved                              0
+VM Committed                             0
+Locked Pages Allocated                   0
+SM Reserved                              0
+SM Committed                             0
+Pages Allocated                          57250904    ==> 54 GB
+
+
+Action Plan
+========
+Please run the below query to find the in memory table size:
+
+SELECT t.object_id, t.name,
+ISNULL((SELECT CONVERT(decimal(18,2),(TMS.memory_used_by_table_kb)/1024.00)), 0.00) AS table_used_memory_in_mb,
+ISNULL((SELECT CONVERT(decimal(18,2),(TMS.memory_allocated_for_table_kb - TMS.memory_used_by_table_kb)/1024.00)), 0.00) AS table_unused_memory_in_mb,
+ISNULL((SELECT CONVERT(decimal(18,2),(TMS.memory_used_by_indexes_kb)/1024.00)), 0.00) AS index_used_memory_in_mb,
+ISNULL((SELECT CONVERT(decimal(18,2),(TMS.memory_allocated_for_indexes_kb - TMS.memory_used_by_indexes_kb)/1024.00)), 0.00) AS index_unused_memory_in_mb
+FROM sys.tables t JOIN sys.dm_db_xtp_table_memory_stats TMS ON (t.object_id = TMS.object_id)
+
+
+select OBJECT_NAME(object_id), allocated_bytes, used_bytes,allocation_count,* from sys.dm_db_xtp_memory_consumers
+

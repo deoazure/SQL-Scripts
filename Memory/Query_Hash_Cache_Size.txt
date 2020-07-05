@@ -1,0 +1,16 @@
+-- Script to review query hash:
+
+select query_hash, sum(cast(ecp.size_in_bytes as bigint)) 'Cache consuming in Bytes'
+from sys.dm_exec_query_stats eqs
+join sys.dm_exec_cached_plans ecp
+on eqs.plan_handle=ecp.plan_handle
+group by query_hash
+order by 2 desc
+
+
+
+-- Execute query to find out problem query
+select sql.text, sql_handle, query_hash, query_plan_hash,creation_time,last_execution_time,plan_generation_num,plan_handle
+from sys.dm_exec_query_stats eqs
+cross apply sys.dm_exec_sql_text (eqs.sql_handle) sql
+where query_hash = 0xA0872BEF3DEE485C --sample hash

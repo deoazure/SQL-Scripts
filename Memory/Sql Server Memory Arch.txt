@@ -1,0 +1,14 @@
+https://mssqlwiki.com/sqlwiki/sql-performance/basics-of-sql-server-memory-architecture/
+
+
+https://mssqlwiki.com/2013/03/26/sql-server-lock-pages-in-memory/
+
+
+
+https://mssqlwiki.com/2013/04/22/max-server-memory-do-i-need-to-configure/
+
+
+https://mssqlwiki.com/2012/12/04/sql-server-memory-leak/
+
+
+

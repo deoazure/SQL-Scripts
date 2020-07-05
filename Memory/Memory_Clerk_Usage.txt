@@ -1,0 +1,10 @@
+
+-- memory clerk usage
+
+-- https://www.sqlshack.com/monitoring-memory-clerk-and-buffer-pool-allocations-in-sql-server/
+
+SELECT TOP(5) [type] AS [ClerkType],
+SUM(pages_kb) / 1024 AS [SizeMb]
+FROM sys.dm_os_memory_clerks WITH (NOLOCK)
+GROUP BY [type]
+ORDER BY SUM(pages_kb) DESC

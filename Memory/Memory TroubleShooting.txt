@@ -1,0 +1,167 @@
+SELECT physical_memory_in_use_kb AS Actual_Usage,
+	large_page_allocations_kb AS large_Pages,
+	locked_page_allocations_kb AS locked_Pages,
+	virtual_address_space_committed_kb AS VAS_Committed,
+	large_page_allocations_kb + locked_page_allocations_kb + 427000
+FROM sys.dm_os_process_memory
+
++++++++++++++++++++++++++++++++++++++
+SELECT physical_memory_kb,
+	committed_kb
+FROM sys.dm_os_sys_info
+
+
+++++++++++++++++++++++++++++++++++
+SELECT type,
+	name, 
+	pages_kb,
+	virtual_memory_reserved_kb,
+	virtual_memory_committed_kb,
+	awe_allocated_kb,
+	shared_memory_reserved_kb,
+	shared_memory_committed_kb,
+	page_size_in_bytes
+FROM sys.dm_os_memory_clerks
+ORDER BY pages_kb DESC
++++++++++++++++++++++++++++++++++++++
+SELECT type, SUM(pages_in_bytes)
+FROM sys.dm_os_memory_objects
+GROUP BY type
+ORDER BY 2 DESC
+
++++++++++++++++++++++++++++++++++++++
+SELECT type, SUM(pages_in_bytes)
+FROM sys.dm_os_memory_objects
+GROUP BY type
+ORDER BY 2 DESC
+
++++++++++++++++++++++++++++++++++
+/***** SQL Server 2005 through 2008 R2 *****/
+SELECT name,
+	type,
+	SUM(single_pages_kb + multi_pages_kb) AS Size,
+	SUM(single_pages_in_use_kb + multi_pages_in_use_kb) AS Used_Size,
+	SUM(entries_count) AS Entries,
+	SUM(entries_in_use_count) AS Used_Entries
+FROM sys.dm_os_memory_cache_counters
+GROUP BY name, type
+ORDER BY 4 DESC
+
+/***** SQL Server 2012 or later versions *****/
+SELECT name,
+	type,
+	SUM(pages_kb) AS Size,
+	SUM(pages_in_use_kb) AS Used_Size,
+	SUM(entries_count) AS Entries,
+	SUM(entries_in_use_count) AS Used_Entries
+FROM sys.dm_os_memory_cache_counters
+GROUP BY name, type
+ORDER BY 4 DESC
++++++++++++++++++++++++++++++++++++++++++++
+SELECT TOP 10 OBJECT_NAME(est.objectid, EST.dbid) AS ObjectName, 
+	 omce.name AS cacheName, 
+	 omce.in_use_count,
+	 omce.is_dirty,
+	 omce.disk_ios_count,
+	 omce.context_switches_count,
+	 omce.original_cost,
+	 omce.current_cost,
+	 omce.pages_kb
+FROM sys.dm_exec_cached_plans ecp
+CROSS APPLY sys.dm_exec_sql_text(ecp.plan_handle) est
+INNER JOIN sys.dm_os_memory_cache_entries omce
+ON ecp.memory_object_address = omce.memory_object_address
+++++++++++++++++++++++++++++++++++++++
+SELECT name, 
+	 buckets_count, 
+	 buckets_in_use_count, 
+	 buckets_avg_length,
+	 hits_count,
+	 misses_count
+FROM sys.dm_os_memory_cache_hash_tables
+WHERE type = 'CACHESTORE_SQLCP' OR type = 'CACHESTORE_OBJCP'
+ORDER BY buckets_count DESC
+++++++++++++++++++++++++++++++++++++++++++++++++
+SELECT pool_id,
+	memory_broker_type,
+	allocations_kb,
+	allocations_kb_per_sec,
+	predicted_allocations_kb,
+	target_allocations_kb,
+	future_allocations_kb,
+	overall_limit_kb,
+	last_notification
+FROM sys.dm_os_memory_brokers
+++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+SELECT name,
+	type,
+	clock_hand,
+	clock_status,
+	rounds_count,
+	removed_all_rounds_count,
+	updated_last_round_count,
+	removed_last_round_count,
+	last_round_start_time
+FROM sys.dm_os_memory_cache_clock_hands
+ORDER BY removed_last_round_count DESC
+
++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+
+SELECT * FROM sys.dm_os_performance_counters
+WHERE RTRIM(object_name) LIKE '%Buffer Manager'
+AND counter_name LIKE 'Extension%'
+
+++++++++++++++++++++++++++++++++++++
+
+  Get buffer pool utilization by each database
+
+
+SELECT DBName = CASE WHEN database_id = 32767 THEN 'RESOURCEDB' 
+				ELSE DB_NAME(database_id) END,
+	Size_MB = COUNT(1)/128
+FROM sys.dm_os_buffer_descriptors
+GROUP BY database_id
+ORDER BY 2 DESC
+
+
++++++++++++++++++++++++++++++++++++++++++
+
+  Get buffer pool utilization by each object in a database:
+
+
+SELECT DBName = CASE WHEN database_id = 32767 THEN 'RESOURCEDB' 
+				ELSE DB_NAME(database_id) END,
+	ObjName = o.name,
+	Size_MB = COUNT(1)/128.0
+FROM sys.dm_os_buffer_descriptors obd
+INNER JOIN sys.allocation_units au
+	ON obd.allocation_unit_id = au.allocation_unit_id
+INNER JOIN sys.partitions p
+	ON au.container_id = p.hobt_id
+INNER JOIN sys.objects o
+	ON p.object_id = o.object_id
+WHERE obd.database_id = DB_ID()
+AND o.type != 'S'
+GROUP BY obd.database_id, o.name
+ORDER BY 3 DESC
+
+++++++++++++++++++++++++++++++++++++++++++
+
+
+Get clean and dirty pages count in each database:
+
+
+SELECT Page_Status = CASE WHEN is_modified = 1 THEN 'Dirty' 
+				ELSE 'Clean' END,
+	DBName = CASE WHEN database_id = 32767 THEN 'RESOURCEDB' 
+				ELSE DB_NAME(database_id) END,
+	Pages = COUNT(1)
+FROM sys.dm_os_buffer_descriptors
+GROUP BY database_id, is_modified
+ORDER BY 2
+
+++++++++++++++++++++++++++++++++++++++

@@ -1,0 +1,27 @@
+
+-- Memory usage per database
+-- http://dbadiaries.com/sql-server-how-to-find-buffer-pool-usage-per-database/
+
+SELECT 
+  CASE WHEN database_id = 32767 THEN 'ResourceDB' ELSE DB_NAME(database_id) END AS DatabaseName,
+  COUNT(*) AS cached_pages,
+  (COUNT(*) * 8.0) / 1024 AS MBsInBufferPool
+FROM
+  sys.dm_os_buffer_descriptors
+GROUP BY
+  database_id
+ORDER BY
+  MBsInBufferPool DESC
+
+
+++++++
+Cache size per database
++++++++
+SELECT count(*)*8/1024 AS 'Data Cache Size(MB)'
+,CASE database_id
+WHEN 32767 THEN 'RESOURCEDB'
+ELSE db_name(database_id)
+END AS 'DatabaseName'
+FROM sys.dm_os_buffer_descriptors
+GROUP BY db_name(database_id) ,database_id
+ORDER BY 'Data Cache Size(MB)' DESC

@@ -1,0 +1,121 @@
+-- total usage of buffer pool
+
+SELECT
+	COUNT(*) AS buffer_cache_pages,
+	COUNT(*) * 8 / 1024 AS buffer_cache_used_MB
+FROM sys.dm_os_buffer_descriptors;
+
+
+https://www.mssqltips.com/sqlservertip/2393/determine-sql-server-memory-use-by-database-and-object/
+
+-- usage by databases
+
+-- Note: querying sys.dm_os_buffer_descriptors
+-- requires the VIEW_SERVER_STATE permission.
+
+DECLARE @total_buffer INT;
+
+SELECT @total_buffer = cntr_value
+FROM sys.dm_os_performance_counters 
+WHERE RTRIM([object_name]) LIKE '%Buffer Manager'
+AND counter_name = 'Database Pages';
+
+;WITH src AS
+(
+SELECT 
+database_id, db_buffer_pages = COUNT_BIG(*)
+FROM sys.dm_os_buffer_descriptors
+--WHERE database_id BETWEEN 5 AND 32766
+GROUP BY database_id
+)
+SELECT
+[db_name] = CASE [database_id] WHEN 32767 
+THEN 'Resource DB' 
+ELSE DB_NAME([database_id]) END,
+db_buffer_pages,
+db_buffer_MB = db_buffer_pages / 128,
+db_buffer_percent = CONVERT(DECIMAL(6,3), 
+db_buffer_pages * 100.0 / @total_buffer)
+FROM src
+ORDER BY db_buffer_MB DESC; 
+
+
+-- usage within specific database
+
+USE SQLSentry;  -- <<<< Change DB name
+GO
+
+;WITH src AS
+(
+SELECT
+[Object] = o.name,
+[Type] = o.type_desc,
+[Index] = COALESCE(i.name, ''),
+[Index_Type] = i.type_desc,
+p.[object_id],
+p.index_id,
+au.allocation_unit_id
+FROM
+sys.partitions AS p
+INNER JOIN
+sys.allocation_units AS au
+ON p.hobt_id = au.container_id
+INNER JOIN
+sys.objects AS o
+ON p.[object_id] = o.[object_id]
+INNER JOIN
+sys.indexes AS i
+ON o.[object_id] = i.[object_id]
+AND p.index_id = i.index_id
+WHERE
+au.[type] IN (1,2,3)
+AND o.is_ms_shipped = 0
+)
+SELECT
+src.[Object],
+src.[Type],
+src.[Index],
+src.Index_Type,
+buffer_pages = COUNT_BIG(b.page_id),
+buffer_mb = COUNT_BIG(b.page_id) / 128
+FROM
+src
+INNER JOIN
+sys.dm_os_buffer_descriptors AS b
+ON src.allocation_unit_id = b.allocation_unit_id
+WHERE
+b.database_id = DB_ID()
+GROUP BY
+src.[Object],
+src.[Type],
+src.[Index],
+src.Index_Type
+ORDER BY
+buffer_pages DESC;
+
+
+
+-- Memory Grants Pending value for current instance  (Query 47) (Memory Grants Pending)
+SELECT @@SERVERNAME AS [Server Name], RTRIM([object_name]) AS [Object Name], cntr_value AS [Memory Grants Pending]
+FROM sys.dm_os_performance_counters WITH (NOLOCK)
+WHERE [object_name] LIKE N'%Memory Manager%' -- Handles named instances
+AND counter_name = N'Memory Grants Pending' OPTION (RECOMPILE);
+
+
+SELECT  
+(physical_memory_in_use_kb/1024) AS Memory_usedby_Sqlserver_MB,  
+(locked_page_allocations_kb/1024) AS Locked_pages_used_Sqlserver_MB,  
+(total_virtual_address_space_kb/1024) AS Total_VAS_in_MB,  
+process_physical_memory_low,  
+process_virtual_memory_low  
+FROM sys.dm_os_process_memory; 
+
+-- Phy_Memory_usedby_Sqlserver_MB-- Gives total Physical memory used by SQL Server in MB 
+-- Total_Memory_usedBy_SQLServer_MB-- Gives total memory(RAM+Page file) used by SQL Server in MB
+
+
+
+--
+
+
+

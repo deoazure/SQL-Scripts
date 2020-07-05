@@ -1,0 +1,47 @@
+memoryNeedeed = 16
+memoryCommitted = 32
+availablePercent = 0.8
+memoryAvailable = memoryCommitted * availablePercent
+percentNeeded = memoryNeeded / memoryAvailable
+Plugging in real numbers:
+percentNeeded = 16 / (32 * 0.8) = 16 / 25.6 = 0.625
+
++++++++++++++++++++++++++++++++++++++++++++
+Use master
+go
+
+CREATE RESOURCE POOL [Pool_SecurityBC_SessionMS] WITH(min_cpu_percent=0, 
+              max_cpu_percent=100, 
+              min_memory_percent=1, 
+              max_memory_percent=20, 
+              cap_cpu_percent=100, 
+              AFFINITY SCHEDULER = AUTO, 
+              min_iops_per_volume=0, 
+              max_iops_per_volume=0)
+ 
+GO
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++
+Binding
+
+EXEC sp_xtp_bind_db_resource_pool 'SecurityBC_SessionMS', 'Pool_SecurityBC_SessionMS'  
+GO  
+
+
+++++++++++++++++++++++++++++++++++++++
+Confirm the binding
+
+SELECT d.database_id, d.name, d.resource_pool_id  
+FROM sys.databases d  
+GO  
+
+
+
+Note:Service restart is mandatory to utilize this
+
+
+
+https://docs.microsoft.com/en-us/sql/relational-databases/in-memory-oltp/bind-a-database-with-memory-optimized-tables-to-a-resource-pool?view=sql-server-2017
+
