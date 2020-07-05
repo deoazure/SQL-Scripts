@@ -1,0 +1,27 @@
+net localgroup "MLG-SeServiceLogonRight" "C016796" /add
+net localgroup "MLG-SeAssignPrimaryTokenPrivilege" "C016796" /add
+net localgroup "MLG-SeChangeNotifyPrivilege" "C016796" /add
+net localgroup "MLG-SeIncreaSeQuotaPrivilege" "C016796" /add
+net localgroup "MLG-SeManageVolumePrivilege" "C016796" /add
+net localgroup "MLG-SeLockMemoryPrivilege" "C016796" /add
+
+net localgroup "MLG-SeServiceLogonRight" "C016797" /add
+net localgroup "MLG-SeChangeNotifyPrivilege" "C016797" /add
+net localgroup "MLG-SeIncreaSeQuotaPrivilege" "C016797" /add
+
+
+
+
+
+net localgroup "MLG-SeServiceLogonRight" "MsDtsServer130" /add
+net localgroup "MLG-SeIncreaSeQuotaPrivilege" "MsDtsServer130" /add
+net localgroup "MLG-SeChangeNotifyPrivilege" "MsDtsServer130" /add
+
+
+net localgroup "MLG-SeServiceLogonRight" "MSSQLFDLauncher$RELATIVITYDEV" /add
+net localgroup "MLG-SeIncreaSeQuotaPrivilege" "MSSQLFDLauncher$RELATIVITYDEV" /add
+net localgroup "MLG-SeChangeNotifyPrivilege" "MSSQLFDLauncher$RELATIVITYDEV" /add
+
+net localgroup "MLG-SeServiceLogonRight" "SQLTELEMETRY$RELATIVITYDEV" /add
+net localgroup "MLG-SeIncreaSeQuotaPrivilege" "SQLTELEMETRY$RELATIVITYDEV" /add
+net localgroup "MLG-SeChangeNotifyPrivilege" "SQLTELEMETRY$RELATIVITYDEV" /add
