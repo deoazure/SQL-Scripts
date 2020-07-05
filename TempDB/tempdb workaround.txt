@@ -1,0 +1,18 @@
+Select [name], log_reuse_wait_desc from sys.databases where name = 'tempdb'
+
+
+.............................................................................
+
+DBCC OPENTRAN
+
+DBCC INPUTBUFFER(spid) 
+
+--------------------------------
+use [tempdb]
+go
+dbcc loginfo
+
+
+-----------------------------------------------------------------
+
+shrink file if required

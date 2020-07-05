@@ -1,0 +1,47 @@
+CREATE EVENT SESSION [Database_Growth_Watchdog] ON SERVER
+ADD EVENT sqlserver.database_file_size_change (
+ ACTION ( sqlserver.client_app_name, sqlserver.client_hostname, sqlserver.database_name, sqlserver.session_nt_username, sqlserver.sql_text )
+ WHERE ( [database_id] = ( 2 ) ) -- We filter on database_id=2 to get TempDB growth only
+)
+ADD TARGET package0.event_file ( SET filename = 'D:\Xevent\Database_Growth_Wathdog.xel',
+ max_file_size = ( 10 ) )
+WITH ( MAX_MEMORY = 4096 KB,
+ EVENT_RETENTION_MODE = ALLOW_SINGLE_EVENT_LOSS,
+ MAX_DISPATCH_LATENCY = 1 SECONDS,
+ MAX_EVENT_SIZE = 0 KB,
+ MEMORY_PARTITION_MODE = NONE,
+ TRACK_CAUSALITY = OFF,
+ STARTUP_STATE = ON )
+GO
+ALTER EVENT SESSION [Database_Growth_Watchdog] ON SERVER STATE = START
+
+
+
+++++
+
+Analyse the data
+
++++
+DECLARE @TraceFileLocation NVARCHAR(255)= N'D:\Temp\Database_Growth_Watchdog*.xel';
+WITH FileSizeChangedEvent
+ AS (
+ SELECT object_name Event,
+ CONVERT(XML, event_data) Data
+ FROM sys.fn_xe_file_target_read_file(@TraceFileLocation, NULL, NULL, NULL)
+ )
+ SELECT Data.value('(/event/@timestamp)[1]', 'DATETIME') EventTime,
+ Data.value('(/event/data/value)[7]', 'BIGINT') GrowthInKB,
+ Data.value('(/event/action/value)[2]', 'VARCHAR(MAX)') ClientUsername,
+ Data.value('(/event/action/value)[4]', 'VARCHAR(MAX)') ClientHostname,
+ Data.value('(/event/action/value)[5]', 'VARCHAR(MAX)') ClientAppName,
+ Data.value('(/event/action/value)[3]', 'VARCHAR(MAX)') ClientAppDBName,
+ Data.value('(/event/action/value)[1]', 'VARCHAR(MAX)') SQLCommandText,
+ Data.value('(/event/data/value)[1]', 'BIGINT') SystemDuration,
+ Data.value('(/event/data/value)[2]', 'BIGINT') SystemDatabaseId,
+ Data.value('(/event/data/value)[8]', 'VARCHAR(MAX)') SystemDatabaseFileName,
+ Data.value('(/event/data/text)[1]', 'VARCHAR(MAX)') SystemDatabaseFileType,
+ Data.value('(/event/data/value)[5]', 'VARCHAR(MAX)') SystemIsAutomaticGrowth,
+ Data
+ FROM FileSizeChangedEvent;
+
++++

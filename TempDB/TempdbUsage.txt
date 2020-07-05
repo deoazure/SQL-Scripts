@@ -1,0 +1,39 @@
+
+--https://www.sqlshack.com/monitor-sql-server-tempdb-database/
+
+++++++++++++++++++++++
+ total database size without details,
++++++++++++++++++++++++++
+SELECT SUM(size)/128 AS [Total database size (MB)]
+FROM tempdb.sys.database_files
+ 
+ 
+Use the following query to obtain information on space usage by specific tempdb objects:
++++++++++++++++++++
+SELECT 
+(SUM(unallocated_extent_page_count)/128) AS [Free space (MB)],
+SUM(internal_object_reserved_page_count)*8 AS [Internal objects (KB)],
+SUM(user_object_reserved_page_count)*8 AS [User objects (KB)],
+SUM(version_store_reserved_page_count)*8 AS [Version store (KB)]
+FROM sys.dm_db_file_space_usage
+--database_id '2' represents tempdb
+WHERE database_id = 2
+ 
++++++++++++++++++++++++++++++++++++
+
+Monitor temporary tables space usage
+++++++++++++++++++++++++++++++
+ 
+USE <database_name>
+SELECT tb.name AS [Temporary table name],
+stt.row_count AS [Number of rows], 
+stt.used_page_count * 8 AS [Used space (KB)], 
+stt.reserved_page_count * 8 AS [Reserved space (KB)] FROM tempdb.sys.partitions AS prt 
+INNER JOIN tempdb.sys.dm_db_partition_stats AS stt 
+ON prt.partition_id = stt.partition_id 
+AND prt.partition_number = stt.partition_number 
+INNER JOIN tempdb.sys.tables AS tb 
+ON stt.object_id = tb.object_id 
+ORDER BY tb.name
+
+++++++++++++++++++++++++++++++
