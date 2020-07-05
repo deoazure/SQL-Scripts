@@ -1,0 +1,101 @@
+WITH CTE AS (
+   SELECT rm.member_principal_id,
+          SUM(CASE WHEN r.name = 'db_datareader' THEN 1 END) AS reader,
+          SUM(CASE WHEN r.name = 'db_datawriter' THEN 1 END) AS writer,
+          SUM(CASE WHEN r.name = 'db_execute' THEN 1 END) AS execer,
+          SUM(CASE WHEN r.name = 'db_ddladmin' THEN 1 END) AS ddladmin,
+          SUM(CASE WHEN r.name = 'db_owner' THEN 1 END) AS dbowner,
+		  SUM(CASE WHEN r.name = 'public' THEN 1 END) AS [public],
+          SUM(CASE WHEN r.name NOT IN ('public', 'db_datareader', 'db_datawriter',
+                                       'db_execute', 'db_ddladmin', 'db_owner')
+                   THEN 1
+              END) AS other
+   FROM   sys.database_role_members rm
+   JOIN   sys.database_principals r ON r.principal_id = rm.role_principal_id
+   GROUP  BY rm.member_principal_id
+)
+SELECT dp.name, db_name() AS DBNAME, dp.type_desc, 'x' AS "public", 
+       CASE WHEN CTE.reader   >= 1 THEN 'X' ELSE ' ' END AS "Read",
+       CASE WHEN CTE.writer   >= 1 THEN 'X' ELSE ' ' END AS "Write",
+       CASE WHEN CTE.execer   >= 1 THEN 'X' ELSE ' ' END AS "Execute",
+       CASE WHEN CTE.ddladmin >= 1 THEN 'X' ELSE ' ' END AS "DDL Admin",
+       CASE WHEN CTE.dbowner  >= 1 THEN 'X' ELSE ' ' END AS "db_owner",
+	   --CASE WHEN CTE.[public]  >= 1 THEN 'X' ELSE ' ' END AS "Public",
+       CASE WHEN CTE.other    >= 1 
+            THEN  (SELECT r.name + '; '
+                  FROM   sys.database_role_members rm
+                  JOIN   sys.database_principals r ON r.principal_id = rm.role_principal_id
+                  WHERE  rm.member_principal_id = CTE.member_principal_id
+                    AND  r.name NOT IN ('public', 'db_datareader', 'db_datawriter',
+                                       'db_execute', 'db_ddladmin', 'db_owner')
+                  FOR XML PATH(''))
+            ELSE ''
+       END AS "Other"
+into #loginsback FROM   CTE 
+JOIN   sys.database_principals dp ON CTE.member_principal_id = dp.principal_id
+where dp.name <> 'dbo'
+ORDER  BY dp.name
+
+--select * from #loginsback
+
+select distinct(dpi.name),db_name() AS DBNAME, dpi.type_desc into #dbusers  from #loginsback lb
+join
+sys.database_principals dpi
+on lb.name <> dpi.name
+where dpi.type in ('S', 'U', 'G')  and dpi.name not in ('dbo','guest','INFORMATION_SCHEMA','sys')
+
+
+alter table #dbusers add [public] varchar(10)  not null default ('x')
+
+--select * from #loginsback
+--select * from #dbusers
+
+DELETE FROM #dbusers
+WHERE name IN 
+    (SELECT name 
+     FROM #loginsback)
+     
+--select *  from #loginsback
+--select * from #dbusers
+
+alter table #dbusers add [Read] varchar(10)  not null default ('')
+alter table #dbusers add [Write] varchar(10)  not null default ('')
+alter table #dbusers add [Execute] varchar(10)  not null default ('')
+alter table #dbusers add [DDL Admin] varchar(10)  not null default ('')
+alter table #dbusers add [db_owner] varchar(10)  not null default ('')
+alter table #dbusers add [Other] varchar(10)  not null default ('')
+
+select * into #final from #loginsback
+insert into #final
+select *  from #dbusers
+
+--select * from #final order by name asc
+
+alter table #final add SIDD varbinary(85)
+
+--select * from #final 
+
+update fi 
+set fi.SIDD = dataprin.[sid]
+from #final fi
+join sys.database_principals dataprin
+on fi.name = dataprin.name
+
+--select * from #final
+
+update fi_lname 
+set fi_lname.name = srvprin.[name]
+from #final fi_lname
+join sys.server_principals srvprin
+on fi_lname.SIDD = srvprin.[sid]
+
+ALTER TABLE #final
+DROP COLUMN SIDD
+
+select * from #final where type_desc not in ('DATABASE_ROLE') order by name asc
+
+
+
+drop table #loginsback
+drop table #dbusers
+drop table #final

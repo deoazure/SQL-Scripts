@@ -1,0 +1,36 @@
+-------------------------------
+Lets say when we restore  production server db backup onto staging or development db server - Login SIDs
+ are not match on these enviroments this script help you to fix the users by assigning them SIDs from the 
+logins existing on the destination server alternative it might create a new login if it not already existing 
+on the new server
+_____________________________
+set nocount on 
+Declare C_Com cursor for select Name from sys.databases where state_desc ='Online' order by database_id 
+Declare @user table(UName varchar(100)) 
+Declare @Name varchar(100),@sql varchar(1000),@Uname varchar(100) 
+Open C_Com 
+Fetch next from C_Com into @Name 
+While @@FETCH_STATUS = 0 
+Begin 
+        
+        Set @sql = 'select S.name from '+@name+'..sysusers S 
+            Inner join sys.syslogins L 
+            on L.name collate Latin1_General_CI_AI = S.name collate Latin1_General_CI_AI 
+            where issqluser =1 and hasdbaccess =1' 
+        Insert into @user exec (@SQL) 
+        While (select count(1) from @user) >0 
+        begin 
+            select top 1 @Uname = Uname from @user 
+            set @SQL = 'Use '+@Name+'; EXEC sp_change_users_login ''auto_fix'','''+@Uname+'''' 
+            Exec (@SQL) 
+            print @sql 
+            set @SQL = 'Use '+@Name+'; EXEC sp_addrolemember ''db_owner'','''+@Uname+'''' 
+            Exec (@SQL) 
+            print @sql 
+            Delete from @user where UName = @Uname 
+        end 
+        Fetch next from C_Com into @Name 
+end 
+close C_Com 
+deallocate C_Com 
+Go
