@@ -1,0 +1,88 @@
+--1. Create the DMK in the master database, if it doesn’t already exist.
+--2. Create a certificate in the master database for securing the DEK.
+--3. Create the DEK in the user database to be encrypted.
+--4. Enable TDE on the user database.
+
+USE Master
+GO
+-- Service Master Key (SMK) is the root of the SQL Server encryption hierarchy. 
+-- It’s generated automatically the first time it is needed to encrypt another key. 
+
+-- When you create a Database Master Key (DMK), if there is no SMK, it is automatically
+-- generated.
+
+-- The Service Master Key can only be opened by the Windows service account under which
+-- it was created or by a principal with access to both the service account name and its -- password. 
+
+-- Regenerating or restoring the Service Master Key involves decrypting and re-encrypting -- the complete encryption hierarchy. Unless the key has been compromised, this resource--- intensive operation should be scheduled during a period of low demand.
+
+CREATE MASTER KEY
+ENCRYPTION BY PASSWORD = 'anbdh!@jndch';
+
+
+CREATE CERTIFICATE TdeCert
+WITH SUBJECT = 'TDE certificate';
+
+
+USE [RPR_Development]
+GO
+CREATE DATABASE ENCRYPTION KEY
+WITH ALGORITHM = AES_256
+ENCRYPTION BY SERVER CERTIFICATE TdeCert;
+
+
+--When you run above statement, you should receive the following warning.
+
+--Warning: The certificate used for encrypting the database encryption key has not been backed up. You should immediately back up the certificate and the private key associated with the certificate. If the certificate ever becomes unavailable or if you must restore or attach the database on another server, you must have backups of both the certificate and the private key or you will not be able to open the database.
+
+ALTER DATABASE [RPR_Development]
+SET ENCRYPTION ON;
+
+
+
+
+
+-- To verify that the DMK has been created: sys.symmetric_keys.
+SELECT name KeyName,
+  symmetric_key_id KeyID,
+  key_length KeyLength,
+  algorithm_desc KeyAlgorithm
+FROM sys.symmetric_keys;
+
+-- To verify that the certificate has been created: sys.certificates.
+SELECT name CertName,
+  certificate_id CertID,
+  pvt_key_encryption_type_desc EncryptType,
+  issuer_name Issuer
+FROM sys.certificates
+WHERE issuer_name = 'TDE certificate';
+
+-- To verify the DEK existence: sys.dm_database_encryption_keys.
+
+SELECT DB_NAME(6) DbName,
+  encryption_state EncryptState,
+  key_algorithm KeyAlgorithm,
+  key_length KeyLength,
+  encryptor_type EncryptType
+FROM sys.dm_database_encryption_keys;
+
+
+
+
+
+
+USE Master
+GO
+BACKUP SERVICE MASTER KEY 
+TO FILE = 'D:\SvcMasterKey.key'
+ENCRYPTION BY PASSWORD = 'anbdh!@jndch';
+
+BACKUP MASTER KEY 
+TO FILE = 'D:\DbMasterKey.key'
+ENCRYPTION BY PASSWORD = 'anbdh!@jndch';
+
+BACKUP CERTIFICATE TdeCert 
+TO FILE = 'D:\Certificate\deCert.cer'
+WITH PRIVATE KEY(
+  FILE = 'D:\Certificate\TdeCert.key',
+  ENCRYPTION BY PASSWORD = 'anbdh!@jndch')
