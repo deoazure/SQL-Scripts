@@ -1,0 +1,8 @@
+-- SSAS sessions, connections
+
+SELECT * FROM $SYSTEM.DISCOVER_CONNECTIONS
+
+Select * from $System.discover_object_activity -- This query reports on object activity since the service last started. For example queries based on this DMV, see New System.Discover_Object_Activity.
+Select * from $System.discover_object_memory_usage -- This query reports on memory consumption by object.
+Select * from $System.discover_sessions -- This query reports on active sessions, including session user and duration.
+Select * from $System.discover_locks -- This query returns a snapshot of the locks used at a specific point in time.
